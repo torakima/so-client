@@ -81,7 +81,7 @@ public class MainActivity extends BaseActivity {
 //        );
 //        myClientTask.execute();
         status.setConnect(true);
-        status.setStartButton(true);
+//        status.setStartButton(true);
     }
 
     public void PickUpStart(View view) {
@@ -171,7 +171,7 @@ public class MainActivity extends BaseActivity {
 
     private void result(final String msg) {
         switch (msg) {
-            case "connected":
+            case "FEED_SET06":
                 status.setConnect(true);
                 status.setStartButton(true);
                 break;
