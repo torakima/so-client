@@ -5,20 +5,30 @@ import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.Bundle;
 import android.os.Message;
+import android.os.StrictMode;
 import android.util.Log;
 import android.view.View;
+import android.widget.EditText;
 import android.widget.Toast;
 import android.widget.VideoView;
+
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
+import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 
+import io.socket.client.IO;
+import io.socket.client.Socket;
+import io.socket.emitter.Emitter;
 import jp.cosmograph.cosmograph.databinding.ActivityMainBinding;
 import jp.cosmograph.cosmograph.model.Status;
 
@@ -29,6 +39,15 @@ public class MainActivity extends BaseActivity {
     private BufferedReader networkReader;
     private BufferedWriter networkWriter;
 
+    //클라세팅
+    private StringBuilder clientMsgBuilder = null;
+    private EditText joinIpText;//클라접속아이피
+    private java.net.Socket clientSocket;
+    private DataInputStream clientIn;
+    private DataOutputStream clientOut;
+    private String clientMsg;
+    private String nickName;
+    private static final int CLIENT_TEXT_UPDATE = 200;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -39,6 +58,8 @@ public class MainActivity extends BaseActivity {
         binding.setModel(status);
         binding.setMain(this);
         setVideo((VideoView) findViewById(R.id.video));
+        StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
+        StrictMode.setThreadPolicy(policy);
     }
 
     public void onIpTextChanged(CharSequence s, int start, int before, int count) {
@@ -53,124 +74,98 @@ public class MainActivity extends BaseActivity {
 
     public void Connect(View view) {
 
-        MyClientTask myClientTask = new MyClientTask(
-                "test"
-        );
-        myClientTask.execute();
+        joinServer();
+
+//        MyClientTask myClientTask = new MyClientTask(
+//                "test"
+//        );
+//        myClientTask.execute();
         status.setConnect(true);
         status.setStartButton(true);
     }
 
     public void PickUpStart(View view) {
-        sendData("FEED_STA06");
+        sendMsg("FEED_START");
     }
 
     public void PickUpGood(View view) {
-        sendData("PICKUP_GOOD");
+        sendMsg("PICKUP_GOOD");
         status.setFeedComplete(false);
         status.setStartButton(true);
     }
 
     public void sendData(final String param) {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                PrintWriter out = new PrintWriter(networkWriter, true);
-                out.println(param);
-                out.flush();
-            }
-        });
+
+//        new Thread(new Runnable() {
+//            @Override
+//            public void run() {
+//                PrintWriter out = new PrintWriter(networkWriter, true);
+//                out.println(param);
+//                out.flush();
+//            }
+//        });
 
     }
 
-    private Handler m_Handler = new Handler() {
-        public void handleMessage(Message msg) {
-            switch (msg.what) {
-                case 0:
-                    Toast.makeText(MainActivity.this, "server socket create : " + msg.obj, Toast.LENGTH_SHORT).show();
-                    break;
-                case 1:
-                    Toast.makeText(MainActivity.this, "server responded : " + msg.obj, Toast.LENGTH_SHORT).show();
-                    break;
+
+    private Handler handler = new Handler() {
+        @Override
+        public void handleMessage(Message msgg) {
+            super.handleMessage(msgg);
+            switch (msgg.what) {
+                case CLIENT_TEXT_UPDATE: {
+                    clientMsgBuilder = new StringBuilder();
+                    result(clientMsgBuilder.append(clientMsg).toString());
+                }
+                break;
+
             }
         }
     };
 
-
-    public class MyClientTask extends AsyncTask<Void, Void, Void> {
-        //
-//        String dstAddress;
-//        int dstPort;
-        String response = "";
-
-        MyClientTask(String status) {
-//            dstAddress = addr;
-//            dstPort = port;
-        }
-
-        @Override
-        protected Void doInBackground(Void... arg0) {
-
-            java.net.Socket socket = null;
-
-            try {
-                socket = new java.net.Socket(ipAddressText, Integer.parseInt(PortText));
-//                socket = new java.net.Socket("192.168.2.22", 8080);
-                ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream(1024);
-                byte[] buffer = new byte[1024];
-
-                int bytesRead;
-                networkWriter = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
-                networkReader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                String line;
-                while (true) {
-                    try {
-                        line = networkReader.readLine();
-                        if (line != null) {
-                            Log.d("Chatting is line", "line : " + line);
-                            result(line);
-                        }
-//                        result(line);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
-                /*
-                 * notice:
-				 * inputStream.read() will block if no data return
-				 */
-//                while ((bytesRead = networkReader.read(buffer)) != -1) {
-//                    byteArrayOutputStream.write(buffer, 0, bytesRead);
-//                    response += byteArrayOutputStream.toString("UTF-8");
-//                    result(response);
-//                }
-
-            } catch (UnknownHostException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
-                response = "UnknownHostException: " + e.toString();
-            } catch (IOException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
-                response = "IOException: " + e.toString();
-            } finally {
-                if (socket != null) {
-                    try {
-                        socket.close();
-                    } catch (IOException e) {
-                        // TODO Auto-generated catch block
-                        e.printStackTrace();
-                    }
+    private  void sendMsg(final String msg) {
+        Handler handler = new Handler();
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    clientOut.writeUTF(msg);
+                } catch (IOException e) {
+                    e.printStackTrace();
                 }
             }
-            return null;
-        }
+        });
+    }
 
-        @Override
-        protected void onPostExecute(Void result) {
-            super.onPostExecute(result);
+    public void joinServer() {
+        if (nickName == null) {
+            nickName = "connect";
         }
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    clientSocket = new java.net.Socket(ipAddressText, Integer.parseInt(PortText));
+//                    clientSocket = new java.net.Socket("192.168.2.22", 7777);
 
+                    clientOut = new DataOutputStream(clientSocket.getOutputStream());
+                    clientIn = new DataInputStream(clientSocket.getInputStream());
+                    clientOut.writeUTF(nickName);
+                    while (clientIn != null) {
+                        try {
+                            clientMsg = clientIn.readUTF();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                        handler.sendEmptyMessage(CLIENT_TEXT_UPDATE);
+                    }
+                } catch (UnknownHostException e1) {
+                    e1.printStackTrace();
+                } catch (IOException e1) {
+                    e1.printStackTrace();
+                }
+            }
+        }).start();
     }
 
 
@@ -180,33 +175,35 @@ public class MainActivity extends BaseActivity {
                 status.setConnect(true);
                 status.setStartButton(true);
                 break;
-            case "FEED_PRO01":
+            case "FEED_PRG01":
                 status.setFeedStatus(1);
                 status.setStartButton(false);
                 break;
-            case "FEED_PRO02":
+            case "FEED_PRG02":
                 status.setFeedStatus(2);
                 status.setStartButton(false);
                 break;
-            case "FEED_PRO03":
+            case "FEED_PRG03":
                 status.setFeedStatus(3);
                 status.setStartButton(false);
                 break;
-            case "FEED_PRO04":
+            case "FEED_PRG04":
                 status.setFeedStatus(4);
                 status.setStartButton(false);
                 break;
-            case "FEED_PRO05":
+            case "FEED_PRG05":
                 status.setFeedStatus(5);
                 status.setStartButton(false);
                 break;
-            case "FEED_PRO06":
+            case "FEED_PRG06":
                 status.setFeedStatus(6);
                 status.setStartButton(false);
                 break;
             case "PICKUP_END":
+                status.setFeedStatus(0);
                 status.setFeedComplete(true);
                 status.setStartButton(false);
+                sendMsg("PICKUP_GOOD");
                 break;
             default:
                 break;
@@ -215,7 +212,7 @@ public class MainActivity extends BaseActivity {
         h.post(new Runnable() {
             @Override
             public void run() {
-                Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show();
+//                Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show();
             }
         });
     }
